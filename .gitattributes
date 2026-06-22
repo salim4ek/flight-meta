@@ -1,7 +1,13 @@
 # GitHub language stats (Linguist).
-# flight-meta is a Go service with a React/TypeScript frontend bundled under web/.
-# Mark the frontend as vendored so the language badge reflects the Go backend — the
-# project's core. The frontend code stays in the repo and is showcased in the README;
-# this only affects the language bar. See:
+# flight-meta is a Go service with a React/TypeScript frontend under web/.
+# Keep Go as the primary language while still showing the real TypeScript
+# frontend: vendor only the design-token stylesheet and the bulkiest UI
+# components so the language bar reads Go first, TypeScript second. The whole
+# frontend stays in the repo and is showcased in the README; this only affects
+# the language bar. See:
 # https://github.com/github-linguist/linguist/blob/master/docs/overrides.md
-web/** linguist-vendored
+web/src/index.css linguist-vendored
+web/src/components/Legal.tsx linguist-vendored
+web/src/components/OfferCard.tsx linguist-vendored
+web/src/components/SearchForm.tsx linguist-vendored
+web/src/components/Settings.tsx linguist-vendored

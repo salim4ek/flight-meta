@@ -1,8 +1,122 @@
 # flight-meta
 
+**Метапоиск авиабилетов, который находит само-стыковочные маршруты, которых нет у крупных агрегаторов — с визово-транзитной логикой под паспорта РФ/СНГ и без наценки пользователю.**
+
+<a name="top"></a>
+Русский · [English](#en)
+
+![flight-meta — форма поиска](docs/screenshots/home.png)
+
+## Что это
+
+Агрегаторы (Aviasales и др.) показывают только маршруты, продающиеся как **единый билет** в GDS. Они не «склеивают» два отдельных билета разных авиакомпаний — поэтому реально существующие и часто более дешёвые маршруты через любой хаб (Стамбул, Дубай, Пекин, что угодно) остаются невидимыми. **flight-meta их находит.**
+
+Модель — **метапоиск без наценки**: находим, сравниваем, отправляем покупать к авиакомпании или агентству (редирект). Доход — партнёрские отчисления, а не сбор с путешественника. Это и есть честный смысл «без комиссии».
+
+## Ключевое
+
+- **Свой комбайнер само-стыковок** (`internal/combiner`): склеивает `A→хаб` + `хаб→B` из отдельных билетов в один маршрут, проверяя время стыковки и транзит-визу. Route-agnostic — любой хаб, без привязки к стране.
+- **Транзит-визы РФ/СНГ.** Каждая стыковка оценивается под паспорт: без визы / TWOV (напр. Китай, с условиями) / нужна виза / уточните, с различием *airside vs. landside*. Есть фильтр «только безвиз-транзит».
+- **Безопасное время стыковки** (`internal/connection`): оценка `safe / risky / infeasible` по минимальному времени пересадки; само-стыковке нужен запас побольше, а landside-пересадка с визой помечается невозможной.
+- **Гибкие даты.** Календарь цен показывает соседние дни и подсвечивает самый дешёвый.
+- **Человеческий поиск.** Никаких кодов в интерфейсе — вводите **город или страну** по названию; выбор страны подставляет её главный город.
+- **Темы + РФ-комплаенс.** Три темы (тёплая журнальная · тёмная неоновая · необрутализм), выбор шрифта/размера/плотности, **только системные шрифты** (без иностранного font-CDN — скорость и правила по данным). Страницы политики/согласия, баннер согласия, реквизиты владельца в футере.
+
+| Результаты — тёплая тема | Результаты — тёмная тема |
+|---|---|
+| ![результаты](docs/screenshots/results.png) | ![результаты, тёмная](docs/screenshots/results-dark.png) |
+
+## Как устроено
+
+Kiwi/Tequila недоступен, поэтому уникальные маршруты строит **собственный комбайнер**: берёт per-leg цены из `sources.LegSource`, перебирает хабы и собирает само-стыковочные офферы — затем обогащение добавляет статус транзит-визы и риск стыковки перед ранжированием. Реальный фид цен (например Travelpayouts) реализует `LegSource` и встаёт на место `mockleg` без изменений остального конвейера.
+
+> Статус: весь конвейер работает end-to-end на **mock-источнике плеч**. Реализовано всё, кроме живого фида цен.
+
+## Стек
+
+Go (конкурентный fan-out с таймаутами на источник) · React + Vite + TypeScript · Docker / Compose · далее Helm/K8s.
+
+## Запуск локально
+
+```bash
+# бэкенд
+go run ./cmd/api
+curl "http://localhost:8080/search?origin=MOW&destination=BKK&depart=2026-04-20"
+
+# фронт (Vite dev проксирует /api → :8080)
+cd web && npm install && npm run dev   # http://localhost:5173
+```
+
+Через Docker: `docker compose up --build`. Прод-сборка фронта: `cd web && npm run build` (базовый URL API через `VITE_API_BASE`, по умолчанию `/api`).
+
+## API
+
+`GET /health` → `{"status":"ok"}`
+
+`GET /search` — параметры:
+
+| Параметр | Обяз. | Пример | Примечания |
+|---|---|---|---|
+| `origin` | да | `MOW` | IATA вылета (UI сам преобразует город/страну → код) |
+| `destination` | да | `BKK` | IATA назначения |
+| `depart` | да | `2026-04-20` | `YYYY-MM-DD` |
+| `return` | нет | `2026-04-27` | в одну сторону, если не задан |
+| `passengers` | нет | `2` | 1..9, по умолчанию 1 |
+| `passport` | нет | `RU` | управляет визово-транзитной логикой (по умолчанию `RU`) |
+| `currency` | нет | `RUB` | валюта цены |
+| `stops` | нет | `direct` / `one` / `one_plus` | фильтр по числу пересадок |
+| `airlines` | нет | `TK,EK` | только эти авиакомпании |
+| `exclude_airlines` | нет | `SU` | исключить эти авиакомпании |
+| `self_transfer` | нет | `false` | отключить само-стыковочные офферы (по умолчанию включены) |
+| `visa_free_transit` | нет | `true` | только безвизовые транзиты |
+| `hide_infeasible` | нет | `true` | скрыть невозможные стыковки |
+
+`GET /calendar` — те же параметры + `window` (1..14 дней в каждую сторону, по умолчанию 3) → `{ days: [{ date, priceMinor, currency, hasOffers, cheapest }] }`.
+
+`/search` возвращает `{ offers, sources, visaDisclaimer }`. Само-стыковочные офферы несут `connection: "self_transfer"` и обычно `unique: true`; стыковки несут `visaStatus` и `transitNote`.
+
+## Структура проекта
+
+```
+cmd/api             точка входа сервиса
+internal/offer      source-agnostic модель Offer (без зависимостей)
+internal/sources    Adapter + LegSource; mockleg/ — заглушка цен плеч
+internal/combiner   комбайнер: сборка само-стыковок A→хаб→B
+internal/search     fan-out, слияние, обогащение (визы, стыковки), ранжирование, /calendar
+internal/rank       фильтры (пересадки, авиакомпании, само-стыковка, виза, риск) + сортировка
+internal/visa       транзит-визы: встроенная база правил РФ/СНГ, резолвер, транзит-статусы и заметки
+internal/connection оценка MCT (safe/risky/infeasible)
+internal/config     env-настройки (секреты остаются на сервере)
+internal/httpapi    HTTP/JSON, валидация запросов, security-заголовки
+web/                React + Vite + TypeScript
+deploy/             Dockerfile (Helm/K8s — позже)
+```
+
+> Транзит-визовые данные в `internal/visa/data/*.json` — **индикативные** (на 2026-06) и встроены в бинарь через `go:embed`. Это не официальная справка — авторитетный источник (Timatic/sherpa) подключается позже.
+
+## Тесты
+
+```bash
+go test ./cmd/... ./internal/...   # web/node_modules содержит чужой Go-пакет — не сканируем ./...
+```
+
+## Дорожная карта
+
+- Реальный фид цен плеч через `sources.LegSource` (Travelpayouts) вместо `mockleg`.
+- Rate limiting, security-ревью, Helm/K8s, метрики.
+- Авторитетный источник транзит-виз.
+
+Чек-лист РФ-комплаенса (включая операционные задачи) — в [`COMPLIANCE.md`](COMPLIANCE.md).
+
+---
+
+<a name="en"></a>
+
+# flight-meta · EN
+
 **Flight metasearch that surfaces self-transfer routes the big aggregators never show — with transit-visa logic for RU/CIS passports and no markup on the traveller.**
 
-English · [Русский](#flight-meta--ru)
+[Русский](#top) · English
 
 ![flight-meta — search form](docs/screenshots/home.png)
 
@@ -14,9 +128,9 @@ It's a pure **metasearch with no markup**: find, compare, redirect to the airlin
 
 ## Highlights
 
-- **Self-transfer combiner.** A homegrown engine (`internal/combiner`) stitches `A→hub` + `hub→B` from separate tickets into one itinerary, checking connection time and transit visa along the way. Route-agnostic — any hub, no hardcoded country.
+- **Self-transfer combiner** (`internal/combiner`). A homegrown engine stitches `A→hub` + `hub→B` from separate tickets into one itinerary, checking connection time and transit visa along the way. Route-agnostic — any hub, no hardcoded country.
 - **Transit-visa awareness (RU/CIS).** Every connection is scored against the traveller's passport: visa-free / TWOV (e.g. China, with conditions) / visa required / unknown, with an *airside vs. landside* nuance. Filter to visa-free transits only.
-- **Connection-time safety.** Each layover is graded `safe / risky / infeasible` against minimum connection times; self-transfers demand a bigger buffer, and a visa-requiring landside change is flagged infeasible.
+- **Connection-time safety** (`internal/connection`). Each layover is graded `safe / risky / infeasible` against minimum connection times; self-transfers demand a bigger buffer, and a visa-requiring landside change is flagged infeasible.
 - **Flexible dates.** A price calendar shows nearby days and highlights the cheapest one.
 - **Human search.** No airport codes in the UI — type a **city or country** by name; pick a country and it fills its main city.
 - **Theming + RU compliance.** Three themes (warm editorial · dark neon · neo-brutalist), adjustable font/size/density, **system fonts only** (no foreign font CDN — speed + RU data rules). Privacy/consent pages, consent banner, owner details in the footer.
@@ -61,16 +175,16 @@ Or with Docker: `docker compose up --build`. Production frontend build: `cd web 
 | `depart` | yes | `2026-04-20` | `YYYY-MM-DD` |
 | `return` | no | `2026-04-27` | one-way if omitted |
 | `passengers` | no | `2` | 1..9, default 1 |
-| `passport` | no | `RU` | drives transit-visa logic |
+| `passport` | no | `RU` | drives transit-visa logic (defaults to `RU`) |
 | `currency` | no | `RUB` | price currency |
 | `stops` | no | `direct` / `one` / `one_plus` | stops filter |
 | `airlines` | no | `TK,EK` | only these carriers |
 | `exclude_airlines` | no | `SU` | drop these carriers |
-| `self_transfer` | no | `false` | turn off self-transfer offers |
+| `self_transfer` | no | `false` | turn off self-transfer offers (on by default) |
 | `visa_free_transit` | no | `true` | visa-free transits only |
 | `hide_infeasible` | no | `true` | hide impossible connections |
 
-`GET /calendar` — same params + `window` (1..14 days each side) → `{ days: [{ date, priceMinor, currency, hasOffers, cheapest }] }`.
+`GET /calendar` — same params + `window` (1..14 days each side, default 3) → `{ days: [{ date, priceMinor, currency, hasOffers, cheapest }] }`.
 
 `/search` returns `{ offers, sources, visaDisclaimer }`. Self-transfer offers carry `connection: "self_transfer"` and usually `unique: true`; layovers carry `visaStatus` and `transitNote`.
 
@@ -83,7 +197,7 @@ internal/sources    Adapter + LegSource; mockleg/ — stub leg prices
 internal/combiner   the combiner: A→hub→B self-transfer assembly
 internal/search     fan-out, merge, enrichment (visa, connections), ranking, /calendar
 internal/rank       filters (stops, carriers, self-transfer, visa, risk) + sorting
-internal/visa       transit visas: embedded RU/CIS rule base, resolver, badges
+internal/visa       transit visas: embedded RU/CIS rule base, resolver, transit statuses & notes
 internal/connection MCT scoring (safe/risky/infeasible)
 internal/config     env settings (secrets stay server-side)
 internal/httpapi    HTTP/JSON, request validation, security headers
@@ -93,6 +207,12 @@ deploy/             Dockerfile (Helm/K8s to follow)
 
 > Transit-visa data in `internal/visa/data/*.json` is **indicative** (as of 2026-06), embedded via `go:embed`. Not an official reference — an authoritative source (Timatic/sherpa) plugs in later.
 
+## Tests
+
+```bash
+go test ./cmd/... ./internal/...   # web/node_modules ships a third-party Go package — don't scan ./...
+```
+
 ## Roadmap
 
 - Real leg-price feed via `sources.LegSource` (Travelpayouts) in place of `mockleg`.
@@ -100,64 +220,6 @@ deploy/             Dockerfile (Helm/K8s to follow)
 - Authoritative transit-visa source.
 
 RU legal/compliance checklist (operational tasks included) lives in [`COMPLIANCE.md`](COMPLIANCE.md).
-
----
-
-<a name="flight-meta--ru"></a>
-
-# flight-meta · RU
-
-**Метапоиск авиабилетов, который находит само-стыковочные маршруты, которых нет у крупных агрегаторов — с визово-транзитной логикой под паспорта РФ/СНГ и без наценки пользователю.**
-
-[English](#flight-meta) · Русский
-
-## Что это
-
-Агрегаторы (Aviasales и др.) показывают только маршруты, продающиеся как **единый билет** в GDS. Они не «склеивают» два отдельных билета разных авиакомпаний — поэтому реально существующие и часто более дешёвые маршруты через любой хаб (Стамбул, Дубай, Пекин, что угодно) остаются невидимыми. **flight-meta их находит.**
-
-Модель — **метапоиск без наценки**: находим, сравниваем, отправляем покупать к авиакомпании или агентству (редирект). Доход — партнёрские отчисления, а не сбор с путешественника. Это и есть честный смысл «без комиссии».
-
-## Ключевое
-
-- **Свой комбайнер само-стыковок** (`internal/combiner`): склеивает `A→хаб` + `хаб→B` из отдельных билетов в один маршрут, проверяя время стыковки и транзит-визу. Route-agnostic — любой хаб, без привязки к стране.
-- **Транзит-визы РФ/СНГ.** Каждая стыковка оценивается под паспорт: без визы / TWOV (напр. Китай, с условиями) / нужна виза / уточните, с различием *airside vs. landside*. Есть фильтр «только безвиз-транзит».
-- **Безопасное время стыковки** (`internal/connection`): оценка `safe / risky / infeasible` по минимальному времени пересадки; само-стыковке нужен запас побольше, а landside-пересадка с визой помечается невозможной.
-- **Гибкие даты.** Календарь цен показывает соседние дни и подсвечивает самый дешёвый.
-- **Человеческий поиск.** Никаких кодов в интерфейсе — вводите **город или страну** по названию; выбор страны подставляет её главный город.
-- **Темы + РФ-комплаенс.** Три темы (тёплая журнальная · тёмная неоновая · необрутализм), выбор шрифта/размера/плотности, **только системные шрифты** (без иностранного font-CDN — скорость и правила по данным). Страницы политики/согласия, баннер согласия, реквизиты владельца в футере.
-
-## Как устроено
-
-Kiwi/Tequila недоступен, поэтому уникальные маршруты строит **собственный комбайнер**: берёт per-leg цены из `sources.LegSource`, перебирает хабы и собирает само-стыковочные офферы — затем обогащение добавляет статус транзит-визы и риск стыковки перед ранжированием. Реальный фид цен (например Travelpayouts) реализует `LegSource` и встаёт на место `mockleg` без изменений остального конвейера.
-
-> Статус: весь конвейер работает end-to-end на **mock-источнике плеч**. Реализовано всё, кроме живого фида цен.
-
-## Стек
-
-Go (конкурентный fan-out с таймаутами на источник) · React + Vite + TypeScript · Docker / Compose · далее Helm/K8s.
-
-## Запуск
-
-```bash
-# бэкенд
-go run ./cmd/api
-curl "http://localhost:8080/search?origin=MOW&destination=BKK&depart=2026-04-20"
-
-# фронт (Vite dev проксирует /api → :8080)
-cd web && npm install && npm run dev   # http://localhost:5173
-```
-
-Через Docker: `docker compose up --build`. Прод-сборка фронта: `cd web && npm run build`.
-
-## Тесты
-
-```bash
-go test ./cmd/... ./internal/...   # web/node_modules содержит чужой Go-пакет — не сканируем ./...
-```
-
-## Данные виз
-
-Транзит-визовые данные в `internal/visa/data/*.json` — **индикативные** (на 2026-06) и встроены в бинарь через `go:embed`. Это не официальная справка; позже подключается авторитетный источник (Timatic/sherpa). Полный чек-лист РФ-комплаенса — в [`COMPLIANCE.md`](COMPLIANCE.md).
 
 ---
 

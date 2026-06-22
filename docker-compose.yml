@@ -1,0 +1,34 @@
+# Local/staging stack. Production uses Helm charts on Kubernetes (Phase 7).
+# redis and postgres are provisioned now so later phases (flexible-date cache,
+# reference data) can use them without changing the topology; the Phase 1 API
+# does not depend on them yet.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    environment:
+      FM_ADDR: ":8080"
+      FM_ENABLE_MOCK: "true"
+      FM_CORS_ORIGIN: "http://localhost:5173"
+    ports:
+      - "8080:8080"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: flightmeta
+      POSTGRES_PASSWORD: flightmeta
+      POSTGRES_DB: flightmeta
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

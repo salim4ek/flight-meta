@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type { SearchParams, StopsMode } from '../api'
+import { PlaceInput, type PlaceValue } from './PlaceInput'
 
 const STOPS: { value: StopsMode; label: string }[] = [
   { value: '', label: 'Любые' },
@@ -15,8 +16,8 @@ export function SearchForm({
   onSearch: (p: SearchParams) => void
   loading: boolean
 }) {
-  const [origin, setOrigin] = useState('MOW')
-  const [destination, setDestination] = useState('BKK')
+  const [origin, setOrigin] = useState<PlaceValue>({ iata: 'MOW', label: 'Москва' })
+  const [destination, setDestination] = useState<PlaceValue>({ iata: 'BKK', label: 'Бангкок' })
   const [depart, setDepart] = useState('2026-04-20')
   const [ret, setRet] = useState('')
   const [passengers, setPassengers] = useState(1)
@@ -27,12 +28,27 @@ export function SearchForm({
   const [selfTransfer, setSelfTransfer] = useState(true)
   const [visaFreeTransit, setVisaFreeTransit] = useState(false)
   const [hideInfeasible, setHideInfeasible] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  function swap() {
+    setOrigin(destination)
+    setDestination(origin)
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault()
+    if (!origin.iata || !destination.iata) {
+      setFormError('Выберите город или страну из списка')
+      return
+    }
+    if (origin.iata === destination.iata) {
+      setFormError('Города вылета и прибытия совпадают')
+      return
+    }
+    setFormError('')
     onSearch({
-      origin: origin.trim().toUpperCase(),
-      destination: destination.trim().toUpperCase(),
+      origin: origin.iata,
+      destination: destination.iata,
       depart,
       ret: ret || undefined,
       passengers,
@@ -49,14 +65,13 @@ export function SearchForm({
   return (
     <form className="form" onSubmit={submit}>
       <div className="form__row">
-        <label className="field">
-          <span>Откуда</span>
-          <input value={origin} onChange={(e) => setOrigin(e.target.value)} maxLength={3} placeholder="MOW" required />
-        </label>
-        <label className="field">
-          <span>Куда</span>
-          <input value={destination} onChange={(e) => setDestination(e.target.value)} maxLength={3} placeholder="BKK" required />
-        </label>
+        <div className="route-fields">
+          <PlaceInput label="Откуда" placeholder="Город или страна" value={origin} onChange={setOrigin} />
+          <button type="button" className="swap" onClick={swap} aria-label="Поменять местами" title="Поменять местами">
+            ⇄
+          </button>
+          <PlaceInput label="Куда" placeholder="Город или страна" value={destination} onChange={setDestination} />
+        </div>
         <label className="field">
           <span>Туда</span>
           <input type="date" value={depart} onChange={(e) => setDepart(e.target.value)} required />
@@ -74,6 +89,8 @@ export function SearchForm({
           <input value={passport} onChange={(e) => setPassport(e.target.value)} maxLength={2} placeholder="RU" />
         </label>
       </div>
+
+      {formError && <p className="form__error">{formError}</p>}
 
       <div className="form__row form__row--filters">
         <div className="seg" role="group" aria-label="Пересадки">
@@ -101,19 +118,11 @@ export function SearchForm({
           <span>Само-стыковка</span>
         </label>
         <label className="check">
-          <input
-            type="checkbox"
-            checked={visaFreeTransit}
-            onChange={(e) => setVisaFreeTransit(e.target.checked)}
-          />
+          <input type="checkbox" checked={visaFreeTransit} onChange={(e) => setVisaFreeTransit(e.target.checked)} />
           <span>Только безвиз-транзит</span>
         </label>
         <label className="check">
-          <input
-            type="checkbox"
-            checked={hideInfeasible}
-            onChange={(e) => setHideInfeasible(e.target.checked)}
-          />
+          <input type="checkbox" checked={hideInfeasible} onChange={(e) => setHideInfeasible(e.target.checked)} />
           <span>Без невозможных стыковок</span>
         </label>
         <button className="btn btn--go" type="submit" disabled={loading}>

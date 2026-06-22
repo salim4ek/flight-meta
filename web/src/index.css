@@ -226,6 +226,82 @@ h2 {
   border-color: var(--accent);
 }
 
+/* Place autocomplete */
+.route-fields {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex: 2 1 320px;
+}
+.place {
+  position: relative;
+}
+.swap {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 42px;
+  border: var(--border-w) solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  border-radius: calc(var(--radius) - 4px);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.swap:hover {
+  border-color: var(--accent);
+}
+.place__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--line);
+  border-radius: calc(var(--radius) - 2px);
+  box-shadow: var(--shadow);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.place__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius) - 6px);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+}
+.place__opt:hover {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.place__opt--country .place__name {
+  color: var(--accent-2);
+}
+.place__name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.place__sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.form__error {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--danger);
+}
+
 /* Segmented control */
 .seg {
   display: inline-flex;
@@ -803,6 +879,9 @@ h2 {
   }
   .field {
     flex: 1 1 46%;
+  }
+  .route-fields {
+    flex: 1 1 100%;
   }
   .consent {
     flex-direction: column;

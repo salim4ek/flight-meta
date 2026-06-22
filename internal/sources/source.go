@@ -29,6 +29,9 @@ type Filters struct {
 	// traveller's passport definitely needs a transit visa (VisaStatus ==
 	// "visa_required"). Requires the visa module to have enriched the offers.
 	OnlyVisaFreeTransit bool
+	// HideInfeasible drops offers with any layover whose connection is
+	// infeasible (too short, or self-transfer needing a transit visa).
+	HideInfeasible bool
 }
 
 // Query is a single search request in source-agnostic form.

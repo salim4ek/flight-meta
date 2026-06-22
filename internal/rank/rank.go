@@ -24,6 +24,9 @@ func Apply(offers []offer.Offer, f sources.Filters) []offer.Offer {
 		if f.OnlyVisaFreeTransit && needsTransitVisa(o) {
 			continue
 		}
+		if f.HideInfeasible && hasInfeasibleLayover(o) {
+			continue
+		}
 		if !passAirlines(o, f.IncludeAirlines, f.ExcludeAirlines) {
 			continue
 		}
@@ -40,6 +43,17 @@ func Apply(offers []offer.Offer, f sources.Filters) []offer.Offer {
 func needsTransitVisa(o offer.Offer) bool {
 	for _, l := range o.Layovers {
 		if l.VisaStatus == "visa_required" {
+			return true
+		}
+	}
+	return false
+}
+
+// hasInfeasibleLayover reports whether any connection is infeasible (per the
+// connection module's enrichment).
+func hasInfeasibleLayover(o offer.Offer) bool {
+	for _, l := range o.Layovers {
+		if l.Risk == "infeasible" {
 			return true
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"flightmeta/internal/connection"
 	"flightmeta/internal/offer"
 	"flightmeta/internal/rank"
 	"flightmeta/internal/sources"
@@ -80,13 +81,86 @@ func (o *Orchestrator) Search(ctx context.Context, q sources.Query) Result {
 		all = append(all, p.offers...)
 	}
 
-	// Transit-visa enrichment must run before ranking, since the
-	// OnlyVisaFreeTransit filter reads each layover's VisaStatus.
+	// Enrichment must run before ranking: the OnlyVisaFreeTransit filter reads
+	// VisaStatus, and HideInfeasible reads layover Risk (which itself depends on
+	// VisaStatus for self-transfer). So: visa first, then connection.
 	res := Result{Sources: stats}
 	if o.visa != nil {
 		o.visa.Enrich(all, q.Passport)
 		res.VisaDisclaimer = o.visa.Disclaimer()
 	}
+	connection.Enrich(all)
 	res.Offers = rank.Apply(all, q.Filters)
 	return res
+}
+
+// CalendarDay is the cheapest price found for a single date.
+type CalendarDay struct {
+	Date       string `json:"date"` // YYYY-MM-DD
+	PriceMinor int64  `json:"priceMinor"`
+	Currency   string `json:"currency"`
+	HasOffers  bool   `json:"hasOffers"`
+	Cheapest   bool   `json:"cheapest"`
+}
+
+// CalendarResult is a price-per-date window for flexible-date search.
+type CalendarResult struct {
+	Days []CalendarDay `json:"days"`
+}
+
+// Calendar runs a search for each day in [depart-window, depart+window] and
+// returns the cheapest price per day, flagging the overall minimum. window is
+// clamped to [1, 14]. Filters from q apply to each day's cheapest.
+func (o *Orchestrator) Calendar(ctx context.Context, q sources.Query, window int) CalendarResult {
+	if window < 1 {
+		window = 1
+	}
+	if window > 14 {
+		window = 14
+	}
+	dates := make([]time.Time, 0, window*2+1)
+	for d := -window; d <= window; d++ {
+		dates = append(dates, q.DepartDate.AddDate(0, 0, d))
+	}
+
+	type dayResult struct {
+		idx int
+		day CalendarDay
+	}
+	ch := make(chan dayResult, len(dates))
+	for i, date := range dates {
+		go func(i int, date time.Time) {
+			dq := q
+			dq.DepartDate = date
+			r := o.Search(ctx, dq)
+			cd := CalendarDay{Date: date.Format("2006-01-02")}
+			if len(r.Offers) > 0 {
+				cd.HasOffers = true
+				cd.PriceMinor = r.Offers[0].PriceMinor // Offers are cheapest-first
+				cd.Currency = r.Offers[0].Currency
+			}
+			ch <- dayResult{idx: i, day: cd}
+		}(i, date)
+	}
+
+	days := make([]CalendarDay, len(dates))
+	for range dates {
+		dr := <-ch
+		days[dr.idx] = dr.day
+	}
+
+	// Flag the cheapest day with offers.
+	minIdx, minPrice := -1, int64(0)
+	for i, d := range days {
+		if !d.HasOffers {
+			continue
+		}
+		if minIdx == -1 || d.PriceMinor < minPrice {
+			minIdx, minPrice = i, d.PriceMinor
+		}
+	}
+	if minIdx >= 0 {
+		days[minIdx].Cheapest = true
+	}
+	return CalendarResult{Days: days}
 }

@@ -11,11 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"flightmeta/internal/combiner"
 	"flightmeta/internal/config"
 	"flightmeta/internal/httpapi"
 	"flightmeta/internal/search"
 	"flightmeta/internal/sources"
-	"flightmeta/internal/sources/mock"
+	"flightmeta/internal/sources/mockleg"
 	"flightmeta/internal/visa"
 )
 
@@ -25,12 +26,13 @@ func main() {
 
 	var srcs []sources.Adapter
 	if cfg.EnableMock {
-		srcs = append(srcs, mock.New())
+		// Own combiner over a mock per-leg price source. A real price feed
+		// (e.g. Travelpayouts) implements sources.LegSource and replaces mockleg
+		// here without touching the combiner or the rest of the pipeline.
+		srcs = append(srcs, combiner.New(mockleg.New(), nil))
 	}
-	// Real adapters (Kiwi, Travelpayouts, Amadeus) are registered in later
-	// phases once credentials exist; they are read from cfg server-side only.
 	if len(srcs) == 0 {
-		log.Error("no data sources configured; set FM_ENABLE_MOCK=true or add a real source")
+		log.Error("no data sources configured; set FM_ENABLE_MOCK=true or add a real leg source")
 		os.Exit(1)
 	}
 

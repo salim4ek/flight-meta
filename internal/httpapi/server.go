@@ -27,6 +27,7 @@ func New(orch *search.Orchestrator, log *slog.Logger, allowOrigin string) http.H
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /search", s.handleSearch)
+	mux.HandleFunc("GET /calendar", s.handleCalendar)
 	return s.middleware(mux)
 }
 
@@ -57,6 +58,24 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.orch.Search(r.Context(), q))
+}
+
+func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
+	q, err := parseQuery(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	window := 3
+	if ws := strings.TrimSpace(r.URL.Query().Get("window")); ws != "" {
+		n, err := strconv.Atoi(ws)
+		if err != nil || n < 1 || n > 14 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "window must be 1..14"})
+			return
+		}
+		window = n
+	}
+	writeJSON(w, http.StatusOK, s.orch.Calendar(r.Context(), q, window))
 }
 
 // parseQuery validates and normalizes the search query string. All input is
@@ -124,6 +143,7 @@ func parseQuery(r *http.Request) (sources.Query, error) {
 			ExcludeAirlines:     splitCSVUpper(v.Get("exclude_airlines")),
 			AllowSelfTransfer:   v.Get("self_transfer") != "false", // allowed by default
 			OnlyVisaFreeTransit: v.Get("visa_free_transit") == "true",
+			HideInfeasible:      v.Get("hide_infeasible") == "true",
 		},
 	}, nil
 }
